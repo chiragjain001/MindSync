@@ -11,20 +11,7 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 // Create Supabase client with rate limiting protection
 export const supabase = createClientComponentClient({
   supabaseUrl: SUPABASE_URL,
-  supabaseKey: SUPABASE_ANON_KEY,
-  options: {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true,
-      flowType: 'pkce'
-    },
-    global: {
-      headers: {
-        'X-Client-Info': 'mindSync-web'
-      }
-    }
-  }
+  supabaseKey: SUPABASE_ANON_KEY
 });
 
 // Rate limiting utility
@@ -55,7 +42,15 @@ class RateLimiter {
   }
 }
 
-const rateLimiter = new RateLimiter(10, 60000); // 10 requests per minute
+const rateLimiter = new RateLimiter(8, 60000); // 8 requests per minute to be more conservative
+
+// Utility function to handle rate limit errors
+export const handleRateLimit = (error: any): string => {
+  if (error?.message?.includes('rate limit') || error?.message?.includes('Rate limit')) {
+    return 'Too many requests. Please wait a moment and try again.';
+  }
+  return error?.message || 'An unexpected error occurred';
+};
 
 // Enhanced Supabase client with rate limiting
 export const safeSupabase = {
@@ -64,9 +59,81 @@ export const safeSupabase = {
       const key = 'auth-getSession';
       if (!rateLimiter.isAllowed(key)) {
         console.warn('Rate limit exceeded for getSession');
-        return { data: { session: null }, error: null };
+        return { data: { session: null }, error: { message: 'Rate limit exceeded' } };
       }
-      return supabase.auth.getSession();
+      try {
+        return await supabase.auth.getSession();
+      } catch (error: any) {
+        if (error.message?.includes('rate limit')) {
+          console.warn('Supabase rate limit hit');
+          return { data: { session: null }, error: { message: 'Rate limit exceeded' } };
+        }
+        throw error;
+      }
+    },
+    getUser: async () => {
+      const key = 'auth-getUser';
+      if (!rateLimiter.isAllowed(key)) {
+        console.warn('Rate limit exceeded for getUser');
+        return { data: { user: null }, error: { message: 'Rate limit exceeded' } };
+      }
+      try {
+        return await supabase.auth.getUser();
+      } catch (error: any) {
+        if (error.message?.includes('rate limit')) {
+          console.warn('Supabase rate limit hit');
+          return { data: { user: null }, error: { message: 'Rate limit exceeded' } };
+        }
+        throw error;
+      }
+    },
+    signUp: async (credentials: any) => {
+      const key = 'auth-signUp';
+      if (!rateLimiter.isAllowed(key)) {
+        console.warn('Rate limit exceeded for signUp');
+        return { data: { user: null, session: null }, error: { message: 'Rate limit exceeded' } };
+      }
+      try {
+        return await supabase.auth.signUp(credentials);
+      } catch (error: any) {
+        if (error.message?.includes('rate limit')) {
+          console.warn('Supabase rate limit hit');
+          return { data: { user: null, session: null }, error: { message: 'Rate limit exceeded' } };
+        }
+        throw error;
+      }
+    },
+    signInWithPassword: async (credentials: any) => {
+      const key = 'auth-signInWithPassword';
+      if (!rateLimiter.isAllowed(key)) {
+        console.warn('Rate limit exceeded for signInWithPassword');
+        return { data: { user: null, session: null }, error: { message: 'Rate limit exceeded' } };
+      }
+      try {
+        return await supabase.auth.signInWithPassword(credentials);
+      } catch (error: any) {
+        if (error.message?.includes('rate limit')) {
+          console.warn('Supabase rate limit hit');
+          return { data: { user: null, session: null }, error: { message: 'Rate limit exceeded' } };
+        }
+        throw error;
+      }
+    },
+    signInWithOAuth: async (options: any) => {
+      const key = 'auth-signInWithOAuth';
+      if (!rateLimiter.isAllowed(key)) {
+        console.warn('Rate limit exceeded for signInWithOAuth');
+        return { error: { message: 'Rate limit exceeded' } };
+      }
+      try {
+        return await supabase.auth.signInWithOAuth(options);
+      } catch (error: any) {
+        if (error.message?.includes('rate limit')) {
+          console.warn('Supabase rate limit hit');
+          return { error: { message: 'Rate limit exceeded' } };
+        }
+        throw error;
+      }
     },
     onAuthStateChange: (callback: any) => {
       return supabase.auth.onAuthStateChange(callback);
@@ -77,7 +144,15 @@ export const safeSupabase = {
         console.warn('Rate limit exceeded for signOut');
         return { error: { message: 'Rate limit exceeded' } };
       }
-      return supabase.auth.signOut();
+      try {
+        return await supabase.auth.signOut();
+      } catch (error: any) {
+        if (error.message?.includes('rate limit')) {
+          console.warn('Supabase rate limit hit');
+          return { error: { message: 'Rate limit exceeded' } };
+        }
+        throw error;
+      }
     }
   },
   from: (table: string) => {

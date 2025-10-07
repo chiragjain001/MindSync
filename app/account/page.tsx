@@ -26,9 +26,17 @@ export default function AccountPage() {
   const [editingEmail, setEditingEmail] = useState(false)
   const [tempUsername, setTempUsername] = useState("")
   const [tempEmail, setTempEmail] = useState("")
+  const [isClient, setIsClient] = useState(false)
+
+  // Set client flag after component mounts
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   // Load user profile data
   useEffect(() => {
+    if (!isClient) return
+
     async function loadUserProfile() {
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -50,11 +58,11 @@ export default function AccountPage() {
     }
 
     loadUserProfile()
-  }, [supabase])
+  }, [supabase, isClient])
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (!file || !currentUser) return
+    if (!file || !currentUser || !isClient) return
 
     try {
       setLoading(true)
@@ -79,7 +87,7 @@ export default function AccountPage() {
   }
 
   const handleUsernameUpdate = async () => {
-    if (!profile || !currentUser) return
+    if (!profile || !currentUser || !isClient) return
 
     try {
       const updatedProfile = { ...profile, username: tempUsername }
@@ -94,7 +102,7 @@ export default function AccountPage() {
   }
 
   const handleEmailUpdate = async () => {
-    if (!currentUser) return
+    if (!currentUser || !isClient) return
 
     try {
       const { error } = await supabase.auth.updateUser({ email: tempEmail })
@@ -123,7 +131,7 @@ export default function AccountPage() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
   }
 
-  if (loading) {
+  if (loading || !isClient) {
     return (
       <AuthGate>
         <div className="min-h-screen bg-neutral-50 flex items-center justify-center">

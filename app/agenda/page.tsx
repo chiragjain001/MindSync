@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { User } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, safeSupabase } from '@/lib/supabaseClient';
 import type { AgendaRow } from '@/lib/types';
 import {
   addAgendaTask,
@@ -19,13 +19,30 @@ export default function AgendaPage() {
   const [newTask, setNewTask] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  // Set client flag after component mounts
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
+    if (!isClient) return;
+
     let mounted = true;
     async function init() {
       try {
-        const { data } = await supabase.auth.getUser();
+        const { data, error } = await safeSupabase.auth.getUser();
         if (!mounted) return;
+        
+        if (error) {
+          if (error.message.includes('Rate limit exceeded')) {
+            setError('Too many requests. Please refresh the page in a moment.');
+            return;
+          }
+          throw error;
+        }
+        
         setUser(data.user ?? null);
         if (data.user) {
           const { data: list, error } = await fetchAgenda(data.user.id);
@@ -47,13 +64,13 @@ export default function AgendaPage() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [isClient]);
 
   const isLoggedIn = useMemo(() => !!user, [user]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!user || !newTask.trim()) return;
+    if (!user || !newTask.trim() || !isClient) return;
     try {
       showLoading('Adding task...');
       const { data, error } = await addAgendaTask(newTask.trim(), user.id);
@@ -86,11 +103,22 @@ export default function AgendaPage() {
   }
 
   async function handleSignOut() {
-    await supabase.auth.signOut();
-    setTasks([]);
+    try {
+      const { error } = await safeSupabase.auth.signOut();
+      if (error) {
+        if (error.message.includes('Rate limit exceeded')) {
+          setError('Too many requests. Please try again in a moment.');
+          return;
+        }
+        throw error;
+      }
+      setTasks([]);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to sign out');
+    }
   }
 
-  if (loading) return <div className="p-6">Loading…</div>;
+  if (loading || !isClient) return <div className="p-6">Loading…</div>;
 
   if (!isLoggedIn) {
     return (

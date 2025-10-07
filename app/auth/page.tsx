@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, safeSupabase } from '@/lib/supabaseClient';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -56,21 +56,36 @@ function AuthPageContent({ params, searchParams }: { params: Promise<any>, searc
   }, []);
 
   useEffect(() => {
+    if (!isClient) return;
+
     // Check if user is already authenticated
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('profile_completed')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (profile?.profile_completed) {
-          router.replace('/dashboard');
-        } else {
-          router.replace('/setup-profile');
+      try {
+        const { data: { session }, error } = await safeSupabase.auth.getSession();
+        if (error) {
+          if (error.message.includes('Rate limit exceeded')) {
+            console.warn('Rate limit hit during session check');
+            return;
+          }
+          throw error;
         }
+        
+        if (session?.user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('profile_completed')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (profile?.profile_completed) {
+            router.replace('/dashboard');
+          } else {
+            router.replace('/setup-profile');
+          }
+        }
+      } catch (err: any) {
+        console.error('Auth check failed:', err);
+        setError('Failed to check authentication status');
       }
     };
 
@@ -79,15 +94,20 @@ function AuthPageContent({ params, searchParams }: { params: Promise<any>, searc
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('profile_completed')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (profile?.profile_completed) {
-          router.replace('/dashboard');
-        } else {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('profile_completed')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (profile?.profile_completed) {
+            router.replace('/dashboard');
+          } else {
+            router.replace('/setup-profile');
+          }
+        } catch (err: any) {
+          console.error('Profile check failed:', err);
           router.replace('/setup-profile');
         }
       } else if (event === 'SIGNED_OUT') {
@@ -98,7 +118,7 @@ function AuthPageContent({ params, searchParams }: { params: Promise<any>, searc
     return () => {
       subscription?.unsubscribe();
     };
-  }, [router]);
+  }, [router, isClient]);
 
   const onSubmit = handleSubmit(async (values) => {
     setLoading(true);
@@ -107,16 +127,21 @@ function AuthPageContent({ params, searchParams }: { params: Promise<any>, searc
 
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
+        const { error } = await safeSupabase.auth.signUp({
           email: values.email,
           password: values.password,
           options: {
             data: { first_name: values.firstName || null, last_name: values.lastName || null },
           },
         });
-        if (error) throw error;
+        if (error) {
+          if (error.message.includes('Rate limit exceeded')) {
+            throw new Error('Too many requests. Please wait a moment and try again.');
+          }
+          throw error;
+        }
         setMessage('Signup successful. If email confirmations are enabled, check your inbox.');
-        const { data: userData } = await supabase.auth.getUser();
+        const { data: userData } = await safeSupabase.auth.getUser();
         const user = userData.user;
         if (user) {
           await supabase.from('profiles').upsert({
@@ -126,8 +151,16 @@ function AuthPageContent({ params, searchParams }: { params: Promise<any>, searc
           });
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
-        if (error) throw error;
+        const { error } = await safeSupabase.auth.signInWithPassword({ 
+          email: values.email, 
+          password: values.password 
+        });
+        if (error) {
+          if (error.message.includes('Rate limit exceeded')) {
+            throw new Error('Too many requests. Please wait a moment and try again.');
+          }
+          throw error;
+        }
       }
       router.replace('/setup-profile');
       toast.success(mode === 'signup' ? 'Signed up' : 'Signed in');
@@ -149,15 +182,22 @@ function AuthPageContent({ params, searchParams }: { params: Promise<any>, searc
     try {
       // Use environment variable or construct URL on client side only
       const redirectBase = process.env.NEXT_PUBLIC_SITE_URL || `${window.location.protocol}//${window.location.host}`;
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error } = await safeSupabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${redirectBase}/auth/callback?next=/setup-profile`,
         },
       });
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes('Rate limit exceeded')) {
+          throw new Error('Too many requests. Please wait a moment and try again.');
+        }
+        throw error;
+      }
     } catch (err: any) {
-      setError(err.message ?? 'Failed to sign in with Google');
+      const msg = err.message ?? 'Failed to sign in with Google';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
