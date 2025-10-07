@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useSupabase } from "../supabase-provider"
+import { safeSupabase } from "@/lib/supabaseClient"
 import type { Session, Subscription } from '@supabase/supabase-js'
 import { Loader2 } from 'lucide-react'
 
@@ -21,7 +22,12 @@ export function AuthGate({ children, redirectTo = "/auth" }: AuthGateProps) {
   useEffect(() => {
     const getSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error } = await safeSupabase.auth.getSession()
+        if (error && error.message !== 'Rate limit exceeded') {
+          console.error('Error getting session:', error)
+          router.push(redirectTo)
+          return
+        }
         setSession(session)
         if (!session) {
           router.push(redirectTo)

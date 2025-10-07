@@ -38,14 +38,22 @@ export async function middleware(req: NextRequest) {
   const supabase = createMiddlewareClient({ req, res });
   
   try {
-    // Get current session
+    // Get current session with rate limiting protection
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     
     if (sessionError) {
       console.error('Session error:', sessionError);
       
+      // Handle rate limiting errors
+      if (sessionError.message?.includes('Request rate limit reached') || 
+          sessionError.code === 'over_request_rate_limit') {
+        console.warn('Rate limit reached in middleware, allowing request to proceed');
+        return res; // Allow request to proceed to avoid blocking users
+      }
+      
       // Handle JWT/user mismatch by clearing session and redirecting
-      if (sessionError.message?.includes('User from sub claim in JWT does not exist')) {
+      if (sessionError.message?.includes('User from sub claim in JWT does not exist') ||
+          sessionError.message?.includes('Refresh Token Not Found')) {
         const response = NextResponse.redirect(new URL('/auth', req.url));
         // Clear auth cookies
         response.cookies.delete('sb-access-token');

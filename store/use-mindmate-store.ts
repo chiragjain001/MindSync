@@ -6,6 +6,7 @@ import { addDays, format } from "date-fns"
 import { persist, createJSONStorage } from "zustand/middleware"
 import wellnessTipsData from "@/lib/wellness-tips.json"
 import activitiesData from "@/lib/activities-data.json"
+import { safeStorageWithFallback } from "@/lib/safeStorage"
 // import { AuthUser } from "@/hooks/useSupabaseAuth" // Commented out as not used
 
 export type Priority = "important" | "today" | "habit"
@@ -158,17 +159,11 @@ export const useMindmateStore = create<MindmateState>()(
     })),
     {
       name: "mindmate-store",
-      storage: createJSONStorage(() => {
-        try {
-          return localStorage
-        } catch {
-          return {
-            getItem: () => null,
-            setItem: () => {},
-            removeItem: () => {},
-          }
-        }
-      }),
+      storage: createJSONStorage(() => ({
+        getItem: (key: string) => safeStorageWithFallback.getItem(key, 'local'),
+        setItem: (key: string, value: string) => safeStorageWithFallback.setItem(key, value, 'local'),
+        removeItem: (key: string) => safeStorageWithFallback.removeItem(key, 'local'),
+      })),
       // Only persist non-user-specific data
       partialize: (state) => ({
         selectedDate: state.selectedDate,

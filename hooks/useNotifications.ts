@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { safeStorageWithFallback } from '@/lib/safeStorage'
+import { useAuthRateLimit } from '@/hooks/useRateLimit'
 
 export interface NotificationData {
   title: string
@@ -24,6 +26,7 @@ export function useNotifications() {
   const [scheduledCount, setScheduledCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const scheduledNotificationsRef = useRef<ScheduledNotification[]>([])
+  const { isAllowed: isAuthAllowed } = useAuthRateLimit()
 
   // Check notification permission and load user preference
   useEffect(() => {
@@ -34,6 +37,12 @@ export function useNotifications() {
         setPermissionGranted(permission === 'granted')
 
         // Load user's notification preference from database
+        if (!isAuthAllowed()) {
+          console.warn('Rate limit exceeded for auth session check')
+          setLoading(false)
+          return
+        }
+        
         const { data: { session } } = await supabase.auth.getSession()
         if (session?.user) {
           const { data: profile, error } = await supabase
@@ -46,7 +55,7 @@ export function useNotifications() {
             setNotificationsEnabled(profile.notifications_enabled && permission === 'granted')
           } else {
             // Column doesn't exist yet, use localStorage as fallback
-            const localPref = localStorage.getItem('notifications_enabled')
+            const localPref = safeStorageWithFallback.getItem('notifications_enabled')
             const defaultEnabled = localPref !== null ? JSON.parse(localPref) : true
             setNotificationsEnabled(defaultEnabled && permission === 'granted')
           }
@@ -90,12 +99,12 @@ export function useNotifications() {
         if (error) {
           console.error('Database error:', error)
           // Save to localStorage as fallback
-          localStorage.setItem('notifications_enabled', JSON.stringify(newState))
+          safeStorageWithFallback.setItem('notifications_enabled', JSON.stringify(newState))
         }
       } catch (dbError) {
         console.warn('Failed to save notification preference to database, using localStorage:', dbError)
         // Save to localStorage as fallback
-        localStorage.setItem('notifications_enabled', JSON.stringify(newState))
+        safeStorageWithFallback.setItem('notifications_enabled', JSON.stringify(newState))
       }
 
       // Clear all scheduled notifications if disabling

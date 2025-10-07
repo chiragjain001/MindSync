@@ -9,6 +9,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import zxcvbn from 'zxcvbn';
 
+// Force this page to be client-side only
+export const dynamic = 'force-dynamic';
+
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
@@ -18,13 +21,15 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-export default function AuthPage() {
+// Auth component without SSR
+function AuthPageContent({ params, searchParams }: { params: Promise<any>, searchParams: Promise<any> }) {
   const router = useRouter();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
 
   const {
     register,
@@ -44,6 +49,11 @@ export default function AuthPage() {
       return null;
     }
   }, [passwordValue]);
+
+  useEffect(() => {
+    // Set client flag after component mounts
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     // Check if user is already authenticated
@@ -131,21 +141,58 @@ export default function AuthPage() {
   });
 
   async function signInWithGoogle() {
+    // Guard against server-side execution
+    if (!isClient) return;
+    
     setLoading(true);
     setError(null);
     try {
-      const redirectBase = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : undefined);
+      // Use environment variable or construct URL on client side only
+      const redirectBase = process.env.NEXT_PUBLIC_SITE_URL || `${window.location.protocol}//${window.location.host}`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: redirectBase ? `${redirectBase}/auth/callback?next=/setup-profile` : undefined,
+          redirectTo: `${redirectBase}/auth/callback?next=/setup-profile`,
         },
       });
       if (error) throw error;
     } catch (err: any) {
       setError(err.message ?? 'Failed to sign in with Google');
     } finally {
+      setLoading(false);
     }
+  }
+
+  // Show loading skeleton until client is ready to prevent hydration mismatch
+  if (!isClient) {
+    return (
+      <div className="min-h-dvh flex flex-col lg:grid lg:grid-cols-2">
+        {/* Mobile Header - Only visible on mobile */}
+        <div className="lg:hidden relative flex items-center justify-center py-12 px-6 text-gray-800 min-h-[200px]" style={{background: 'linear-gradient(90deg, #fdf6ec 0%, #f4f1fe 100%)'}}>
+          <div className="absolute inset-0"></div>
+          <div className="relative z-10 flex flex-col items-center justify-center text-center">
+            <div className="logo">
+              <div className="logo-icon">🧠</div>
+              <span className="logo-text">MindSync</span>
+            </div>
+            <p className="text-black/70 mt-3 max-w-sm">Transform your daily routine - achieve more, stay mindful, and track progress with MindSync</p>
+          </div>
+        </div>
+        
+        {/* Loading content */}
+        <div className="flex-1 flex items-start justify-center pt-8 pb-4 px-4 sm:items-center sm:p-6 md:p-8 lg:p-12 xl:p-20 min-h-[calc(100vh-200px)] lg:min-h-auto" style={{background: 'linear-gradient(90deg, #fdf6ec 0%, #f4f1fe 100%)'}}>
+          <div className="w-full max-w-sm sm:max-w-md rounded-2xl p-6 sm:p-8 text-gray-800 animate-pulse" style={{background: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(10px)', boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)'}}>
+            <div className="h-6 bg-gray-300 rounded mb-4"></div>
+            <div className="h-4 bg-gray-200 rounded mb-6"></div>
+            <div className="space-y-4">
+              <div className="h-12 bg-gray-200 rounded-2xl"></div>
+              <div className="h-12 bg-gray-200 rounded-2xl"></div>
+              <div className="h-12 bg-gray-200 rounded-2xl"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -153,11 +200,12 @@ export default function AuthPage() {
       {/* Mobile Header - Only visible on mobile */}
       <div className="lg:hidden relative flex items-center justify-center py-12 px-6 text-gray-800 min-h-[200px]" style={{background: 'linear-gradient(90deg, #fdf6ec 0%, #f4f1fe 100%)'}}>
         <div className="absolute inset-0"></div>
-        <div className="relative z-10 text-center">
+        <div className="relative z-10 flex flex-col items-center justify-center text-center">
           <div className="logo">
             <div className="logo-icon">🧠</div>
             <span className="logo-text">MindSync</span>
           </div>
+          <p className="text-black/70 mt-3 max-w-sm">Transform your daily routine - achieve more, stay mindful, and track progress with MindSync</p>
         </div>
       </div>
 
@@ -169,10 +217,11 @@ export default function AuthPage() {
           <div className="logo">
             <div className="logo-icon">🧠</div>
             <span className="logo-text">MindSync</span>
-          </div>
-          <div>
+         </div>
+         <p className="text-white/70">Transform your daily routine - achieve more, stay mindful, and track progress with MindSync</p>
+          <div className='mt-40'>
             <h2 className="text-2xl xl:text-3xl font-bold mb-2">Get Started with Us</h2>
-            <p className="text-gray-700">Complete these easy steps to register your account.</p>
+            <p className="text-white-700">Complete these easy steps to register your account.</p>
           </div>
           <div className="space-y-4 mt-8">
             <div className="rounded-xl bg-white/10 backdrop-blur px-4 py-3">
@@ -205,7 +254,6 @@ export default function AuthPage() {
               onClick={signInWithGoogle}
               className="flex-1 rounded-2xl border border-gray-300 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm inline-flex items-center justify-center gap-2 hover:border-[#6C63FF] hover:bg-gray-50 transition-all duration-200 text-gray-700"
               disabled={loading}
-              suppressHydrationWarning
             >
               <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
                 <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.8 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.5-.4-3.5z"/>
@@ -233,8 +281,7 @@ export default function AuthPage() {
                     className="w-full rounded-2xl border border-gray-300 px-3 sm:px-4 py-2.5 sm:py-3 bg-white/50 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                     {...register('firstName')}
                     placeholder="eg. John"
-                    suppressHydrationWarning
-                  />
+                                      />
                 </div>
                 <div className="space-y-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
@@ -243,8 +290,7 @@ export default function AuthPage() {
                     className="w-full rounded-2xl border border-gray-300 px-3 sm:px-4 py-2.5 sm:py-3 bg-white/50 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                     {...register('lastName')}
                     placeholder="eg. Francisco"
-                    suppressHydrationWarning
-                  />
+                                      />
                 </div>
               </div>
             )}
@@ -256,8 +302,7 @@ export default function AuthPage() {
                 className="w-full rounded-2xl border border-gray-300 px-3 sm:px-4 py-2.5 sm:py-3 bg-white/50 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                 {...register('email')}
                 placeholder="eg. johnfrancis@gmail.com"
-                suppressHydrationWarning
-              />
+                              />
               {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
             </div>
             <div className="space-y-1">
@@ -269,14 +314,12 @@ export default function AuthPage() {
                   className="w-full rounded-2xl border border-gray-300 px-3 sm:px-4 py-2.5 sm:py-3 bg-white/50 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent pr-10 sm:pr-12 transition-all duration-200 text-sm sm:text-base"
                   {...register('password')}
                   placeholder="Enter your password"
-                  suppressHydrationWarning
-                />
+                                  />
                 <button
                   type="button"
                   onClick={() => setShowPassword((s) => !s)}
                   className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-xs text-[#6C63FF] hover:text-[#5A52E5] font-medium"
-                  suppressHydrationWarning
-                >
+                                  >
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
@@ -303,17 +346,16 @@ export default function AuthPage() {
               type="submit"
               className="w-full rounded-2xl bg-[#6C63FF] hover:bg-[#5A52E5] text-white py-2.5 sm:py-3 font-semibold disabled:opacity-60 transition-all duration-200 shadow-lg hover:shadow-xl text-sm sm:text-base"
               disabled={loading}
-              suppressHydrationWarning
-            >
+                          >
               {loading ? 'Please wait…' : mode === 'signup' ? 'Sign Up' : 'Sign In'}
             </button>
           </form>
 
           <div className="text-xs sm:text-sm mt-3 sm:mt-4 text-center space-y-2">
             {mode === 'signup' ? (
-              <button className="text-[#6C63FF] hover:text-[#5A52E5] font-medium" onClick={() => setMode('signin')} suppressHydrationWarning>Already have an account? Log in</button>
+              <button className="text-[#6C63FF] hover:text-[#5A52E5] font-medium" onClick={() => setMode('signin')} >Already have an account? Log in</button>
             ) : (
-              <button className="text-[#6C63FF] hover:text-[#5A52E5] font-medium" onClick={() => setMode('signup')} suppressHydrationWarning>No account? Sign up</button>
+              <button className="text-[#6C63FF] hover:text-[#5A52E5] font-medium" onClick={() => setMode('signup')} >No account? Sign up</button>
             )}
             <div className="mt-2">
               {!mode || mode === 'signin' ? (
@@ -328,4 +370,8 @@ export default function AuthPage() {
       </div>
     </div>
   );
+}
+
+export default function AuthPage({ params, searchParams }: { params: Promise<any>, searchParams: Promise<any> }) {
+  return <AuthPageContent params={params} searchParams={searchParams} />;
 }
